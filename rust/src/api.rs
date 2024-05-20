@@ -1,7 +1,10 @@
+use std::io::Cursor;
+
 use anyhow::Ok;
 use exif::{self, Exif, In, Tag};
 use flutter_rust_bridge::ZeroCopyBuffer;
 use image::{
+    io::Reader as ImageReader,
     codecs::{jpeg::JpegEncoder, webp},
     imageops, DynamicImage, GenericImageView,
 };
@@ -24,6 +27,116 @@ pub enum FilterType {
     CatmullRom, // Cubic Filter
     Gaussian,   // Gaussian Filter
     Lanczos3,   // Lanczos with window 3
+}
+
+pub fn fit_width(
+    path_str: String,
+    compress_format: Option<CompressFormat>,
+    max_width: Option<i32>,
+    quality: Option<u8>,
+    sampling_filter: Option<FilterType>,
+) -> anyhow::Result<ZeroCopyBuffer<Vec<u8>>> {
+    let orientation = check_orientation(&path_str)?;
+    let mut dyn_img = open_image(&path_str)?;
+    dyn_img = rotate(orientation, dyn_img);
+
+    let compress_format = compress_format.unwrap_or(CompressFormat::Jpeg);
+    let quality = quality.unwrap_or(80);
+    let sampling_filter = sampling_filter.unwrap_or(FilterType::Triangle);
+
+    let (img_width, img_height) = dyn_img.dimensions();
+    let max_width = max_width.unwrap_or(1024);
+
+    let ratio_x: f64 = max_width as f64 / img_width as f64;
+    let scale: f64 = ratio_x;
+
+    let res = compress(
+        &dyn_img,
+        img_height,
+        img_width,
+        scale,
+        compress_format,
+        quality,
+        sampling_filter,
+    )?;
+    return Ok(ZeroCopyBuffer(res));
+}
+
+pub fn fit_height(
+    path_str: String,
+    compress_format: Option<CompressFormat>,
+    max_height: Option<i32>,
+    quality: Option<u8>,
+    sampling_filter: Option<FilterType>,
+) -> anyhow::Result<ZeroCopyBuffer<Vec<u8>>> {
+    let orientation = check_orientation(&path_str)?;
+    let mut dyn_img = open_image(&path_str)?;
+    dyn_img = rotate(orientation, dyn_img);
+
+    let compress_format = compress_format.unwrap_or(CompressFormat::Jpeg);
+    let quality = quality.unwrap_or(80);
+    let sampling_filter = sampling_filter.unwrap_or(FilterType::Triangle);
+
+    let (img_width, img_height) = dyn_img.dimensions();
+    let max_height = max_height.unwrap_or(1024);
+
+    let ratio_y: f64 = max_height as f64 / img_height as f64;
+    let scale: f64 = ratio_y;
+
+    let res = compress(
+        &dyn_img,
+        img_height,
+        img_width,
+        scale,
+        compress_format,
+        quality,
+        sampling_filter,
+    )?;
+    return Ok(ZeroCopyBuffer(res));
+}
+
+pub fn contain(
+    path_str: String,
+    compress_format: Option<CompressFormat>,
+    max_width: Option<i32>,
+    max_height: Option<i32>,
+    quality: Option<u8>,
+    sampling_filter: Option<FilterType>,
+) -> anyhow::Result<ZeroCopyBuffer<Vec<u8>>> {
+    let orientation = check_orientation(&path_str)?;
+    let mut dyn_img = open_image(&path_str)?;
+    dyn_img = rotate(orientation, dyn_img);
+
+    let compress_format = compress_format.unwrap_or(CompressFormat::Jpeg);
+    let quality = quality.unwrap_or(80);
+    let sampling_filter = sampling_filter.unwrap_or(FilterType::Triangle);
+
+    let (img_width, img_height) = dyn_img.dimensions();
+    let max_width = max_width.unwrap_or(1024);
+    let max_height = max_height.unwrap_or(1024);
+
+    let ratio_x: f64 = max_width as f64 / img_width as f64;
+    let ratio_y: f64 = max_height as f64 / img_height as f64;
+    let mut scale: f64 = ratio_y;
+    if ratio_x < ratio_y {
+        scale = ratio_x;
+    }
+
+    let res = compress(
+        &dyn_img,
+        img_height,
+        img_width,
+        scale,
+        compress_format,
+        quality,
+        sampling_filter,
+    )?;
+    return Ok(ZeroCopyBuffer(res));
+}
+
+fn open_image(path: &str) -> anyhow::Result<DynamicImage>{
+    let bytes = std::fs::read(&path)?;
+    Ok(ImageReader::new(Cursor::new(bytes)).with_guessed_format()?.decode()?)
 }
 
 /*
@@ -157,109 +270,4 @@ fn compress(
         return encode_img_buffer_to_bytes(&img_buf, compress_format, quality);
     }
     return encode_dyn_img_to_bytes(img, compress_format, quality);
-}
-
-pub fn fit_width(
-    path_str: String,
-    compress_format: Option<CompressFormat>,
-    max_width: Option<i32>,
-    quality: Option<u8>,
-    sampling_filter: Option<FilterType>,
-) -> anyhow::Result<ZeroCopyBuffer<Vec<u8>>> {
-    let orientation = check_orientation(&path_str)?;
-    let mut dyn_img = image::open(path_str)?;
-    dyn_img = rotate(orientation, dyn_img);
-
-    let compress_format = compress_format.unwrap_or(CompressFormat::Jpeg);
-    let quality = quality.unwrap_or(80);
-    let sampling_filter = sampling_filter.unwrap_or(FilterType::Triangle);
-
-    let (img_width, img_height) = dyn_img.dimensions();
-    let max_width = max_width.unwrap_or(1024);
-
-    let ratio_x: f64 = max_width as f64 / img_width as f64;
-    let scale: f64 = ratio_x;
-
-    let res = compress(
-        &dyn_img,
-        img_height,
-        img_width,
-        scale,
-        compress_format,
-        quality,
-        sampling_filter,
-    )?;
-    return Ok(ZeroCopyBuffer(res));
-}
-
-pub fn fit_height(
-    path_str: String,
-    compress_format: Option<CompressFormat>,
-    max_height: Option<i32>,
-    quality: Option<u8>,
-    sampling_filter: Option<FilterType>,
-) -> anyhow::Result<ZeroCopyBuffer<Vec<u8>>> {
-    let orientation = check_orientation(&path_str)?;
-    let mut dyn_img = image::open(path_str)?;
-    dyn_img = rotate(orientation, dyn_img);
-
-    let compress_format = compress_format.unwrap_or(CompressFormat::Jpeg);
-    let quality = quality.unwrap_or(80);
-    let sampling_filter = sampling_filter.unwrap_or(FilterType::Triangle);
-
-    let (img_width, img_height) = dyn_img.dimensions();
-    let max_height = max_height.unwrap_or(1024);
-
-    let ratio_y: f64 = max_height as f64 / img_height as f64;
-    let scale: f64 = ratio_y;
-
-    let res = compress(
-        &dyn_img,
-        img_height,
-        img_width,
-        scale,
-        compress_format,
-        quality,
-        sampling_filter,
-    )?;
-    return Ok(ZeroCopyBuffer(res));
-}
-
-pub fn contain(
-    path_str: String,
-    compress_format: Option<CompressFormat>,
-    max_width: Option<i32>,
-    max_height: Option<i32>,
-    quality: Option<u8>,
-    sampling_filter: Option<FilterType>,
-) -> anyhow::Result<ZeroCopyBuffer<Vec<u8>>> {
-    let orientation = check_orientation(&path_str)?;
-    let mut dyn_img = image::open(path_str)?;
-    dyn_img = rotate(orientation, dyn_img);
-
-    let compress_format = compress_format.unwrap_or(CompressFormat::Jpeg);
-    let quality = quality.unwrap_or(80);
-    let sampling_filter = sampling_filter.unwrap_or(FilterType::Triangle);
-
-    let (img_width, img_height) = dyn_img.dimensions();
-    let max_width = max_width.unwrap_or(1024);
-    let max_height = max_height.unwrap_or(1024);
-
-    let ratio_x: f64 = max_width as f64 / img_width as f64;
-    let ratio_y: f64 = max_height as f64 / img_height as f64;
-    let mut scale: f64 = ratio_y;
-    if ratio_x < ratio_y {
-        scale = ratio_x;
-    }
-
-    let res = compress(
-        &dyn_img,
-        img_height,
-        img_width,
-        scale,
-        compress_format,
-        quality,
-        sampling_filter,
-    )?;
-    return Ok(ZeroCopyBuffer(res));
 }
